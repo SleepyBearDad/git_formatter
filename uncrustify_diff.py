@@ -33,8 +33,8 @@ class Config(object):
 
     @classmethod
     def config_from_git(cls):
-        gitconfig = configparser.ConfigParser()
-        gitconfig.read_file(open(os.environ["HOME"] + "/.gitconfig"))
+        gitconfig = configparser.ConfigParser(strict=False)
+        gitconfig.read([os.environ["HOME"] + "/.gitconfig", ".git/config"])
 
         def get_from_config(key):
             val = gitconfig.get("formatter", key, fallback=cls._default[key])

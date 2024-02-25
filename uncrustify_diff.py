@@ -2,6 +2,7 @@
 
 import configparser
 import os
+import re
 import sys
 import tempfile
 
@@ -113,6 +114,67 @@ def diff_parser(open_file):
     return files
 
 
+def find_overlaps(a1, a2):
+    _a1 = sum([list(range(start, start + end + 1)) for (start, end) in a1], [])
+    _a2 = sum([list(range(start, start + end + 1)) for (start, end) in a2], [])
+
+    overlap = set(_a1)
+    return list(overlap.intersection(_a2))
+
+
+def overlap_hunks(diff_file, diff1, diff2):
+    overlaps = find_overlaps(diff1, diff2)
+    if not overlaps:
+        return []
+
+    diff_file.seek(0)
+    git_overlap_lines_set = set(overlaps)
+    hunks = []
+    collect = False
+
+    for line in diff_file.readlines():
+        if line.startswith(diff_prefix):
+            add_start, add_len, _, _ = parse_diff_prefix(line)
+            r = set(range(add_start, add_start + add_len + 1))
+            collect = git_overlap_lines_set.intersection(r) != set()
+
+            if collect:
+                hunk = Hunk()
+                hunks.append(hunk)
+
+        if collect:
+            hunk.swallow(line)
+
+    return hunks
+
+
+class Hunk(object):
+    def __init__(self):
+        self.context = None
+        self.adds = []
+        self.removes = []
+
+    def swallow(self, line):
+        if line.startswith(diff_prefix):
+            self.context = line
+        elif line.startswith(remove_prefix):
+            self.removes.append(line)
+        elif line.startswith(add_prefix):
+            self.adds.append(line)
+
+    def __str__(self):
+        elements = self.context.split(diff_prefix)
+        formated_line = Color.BLUE + diff_prefix + elements[1] + diff_prefix + Color.END
+        formated_line += " ".join(elements[2:])
+        s = formated_line
+
+        for line in self.removes + self.adds:
+            s += line
+
+        # A little ugly, we strip the last "\n"
+        return s[:-1]
+
+
 class DiffFile(object):
     def __init__(self, delete=True):
         self.delete = delete
@@ -167,14 +229,6 @@ def git_diff_map(base, diff):
     return {}
 
 
-def find_overlaps(a1, a2):
-    _a1 = sum([list(range(start, start + end + 1)) for (start, end) in a1], [])
-    _a2 = sum([list(range(start, start + end + 1)) for (start, end) in a2], [])
-
-    overlap = set(_a1)
-    return list(overlap.intersection(_a2))
-
-
 def check_exceptions(hunk):
     # Example of exception using struct context (need to add regex check for alignment)
     #
@@ -185,48 +239,23 @@ def check_exceptions(hunk):
     return False
 
 
-def print_uncrustify_diff(filename, diff_file, git_overlap_lines):
-    diff_file.seek(0)
-    git_overlap_lines_set = set(git_overlap_lines)
-    hunks = []
-    collect = False
-    for line in diff_file.readlines():
-        if line.startswith(diff_prefix):
-            add_start, add_len, _, _ = parse_diff_prefix(line)
-            r = set(range(add_start, add_start + add_len + 1))
-            collect = git_overlap_lines_set.intersection(r) != set()
-
-            if collect:
-                hunk = {"context": line, "removes": [], "adds": []}
-                hunks.append(hunk)
-        elif line.startswith(remove_prefix) and collect:
-            hunk["removes"].append(line)
-        elif line.startswith(add_prefix) and collect:
-            hunk["adds"].append(line)
+def print_diff(filename, hunks):
+    if hunks == []:
+        return
 
     print(Color.BOLD + filename + Color.END)
     for hunk in hunks:
         if check_exceptions(hunk):
             continue
-
-        elements = hunk["context"].split(diff_prefix)
-        formated_line = Color.BLUE + diff_prefix + elements[1] + diff_prefix + Color.END
-        formated_line += " ".join(elements[2:])
-        print(formated_line.strip())
-
-        for line in hunk["removes"] + hunk["adds"]:
-            print(line.strip())
+        print(hunk)
 
 
-def uncrustify_diff(git_diff):
+def print_formatter_dif(formatter, git_diff):
     for f in git_diff.keys():
-        with UncrustifyDiffFile(f) as diff_file:
-            uncrustify_diff = diff_parser(diff_file)
-            overlaps = find_overlaps(uncrustify_diff[f]["adds"], git_diff[f]["adds"])
-            if not overlaps:
-                continue
-
-            print_uncrustify_diff(f, diff_file, overlaps)
+        with formatter(f) as diff_file:
+            diff = diff_parser(diff_file)
+            overlaps = overlap_hunks(diff_file, diff[f]["adds"], git_diff[f]["adds"])
+            print_diff(f, overlaps)
 
 
 def get_base_and_diff(args):
@@ -248,7 +277,7 @@ def main(args):
     base, diff = get_base_and_diff(args)
     diff_map = git_diff_map(base, diff)
     if Config.uncrustify:
-        uncrustify_diff(diff_map)
+        print_formatter_dif(UncrustifyDiffFile, diff_map)
 
 
 if __name__ == "__main__":

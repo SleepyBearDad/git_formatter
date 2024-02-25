@@ -10,6 +10,8 @@ new_file_prefix_a = "--- a/"
 new_file_prefix_b = "+++ b/"
 diff_prefix = "@@"
 diff_suffix = "@@"
+remove_prefix = "-"
+add_prefix = "+"
 
 
 class Color:
@@ -173,10 +175,20 @@ def find_overlaps(a1, a2):
     return list(overlap.intersection(_a2))
 
 
+def check_exceptions(hunk):
+    # Example of exception using struct context (need to add regex check for alignment)
+    #
+    # elements = hunk["context"].split(diff_prefix)
+    # if elements[2].split(" ")[1] == "struct":
+    #     return True
+
+    return False
+
+
 def print_uncrustify_diff(filename, diff_file, git_overlap_lines):
     diff_file.seek(0)
     git_overlap_lines_set = set(git_overlap_lines)
-    lines = []
+    hunks = []
     collect = False
     for line in diff_file.readlines():
         if line.startswith(diff_prefix):
@@ -184,22 +196,25 @@ def print_uncrustify_diff(filename, diff_file, git_overlap_lines):
             r = set(range(add_start, add_start + add_len + 1))
             collect = git_overlap_lines_set.intersection(r) != set()
 
-        if collect:
-            lines.append(line)
+            if collect:
+                hunk = {"context": line, "removes": [], "adds": []}
+                hunks.append(hunk)
+        elif line.startswith(remove_prefix) and collect:
+            hunk["removes"].append(line)
+        elif line.startswith(add_prefix) and collect:
+            hunk["adds"].append(line)
 
     print(Color.BOLD + filename + Color.END)
-    for line in lines:
-        if line.startswith(diff_prefix):
-            elements = line.split(diff_prefix)
-            # This can allow to check for exceptions in struct contexts for example!
-            # print(elements[2].split(" ")[1] == "struct")
-            formated_line = (
-                Color.BLUE + diff_prefix + elements[1] + diff_prefix + Color.END
-            )
-            formated_line += " ".join(elements[2:])
-            print(formated_line)
-        else:
-            # if line.strip()[-1] == "|": print("Possible exception for multi-line or")
+    for hunk in hunks:
+        if check_exceptions(hunk):
+            continue
+
+        elements = hunk["context"].split(diff_prefix)
+        formated_line = Color.BLUE + diff_prefix + elements[1] + diff_prefix + Color.END
+        formated_line += " ".join(elements[2:])
+        print(formated_line.strip())
+
+        for line in hunk["removes"] + hunk["adds"]:
             print(line.strip())
 
 

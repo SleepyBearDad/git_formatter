@@ -50,9 +50,9 @@ class Config(object):
         for key in cls._default.keys():
             set_from_config(key)
 
-        setattr(cls, "exceptions", cls._formatter_exceptions)
-        for key in cls._formatter_exceptions.keys():
-            cls.exceptions[key] = get_from_config(key, "formatter-exceptions", cls._formatter_exceptions)
+        setattr(cls, "exceptions", {})
+        for key in UserExceptions.get_exception_keys():
+            cls.exceptions[key] = gitconfig.get("formatter-exceptions", key, fallback=False)
 
         if not getattr(cls, "colors"):
             Color.PURPLE = Color.CYAN = Color.DARKCYAN = Color.BLUE = Color.GREEN = ""
@@ -154,6 +154,16 @@ def overlap_hunks(diff_file, diff1, diff2):
     return hunks
 
 
+# TODO: this needs to go into its own file, and become disconnected from Config
+#
+# We can do so by adding exception_map to the "check" method, and adding a
+# getter for the user exception names. In this way Config can get the user
+# exceptions from the class without pre-defining them.
+#
+# A user can then add his own types of exceptions to the formatter based on:
+# - context: add/remove lines, and diff context (e.g. function/struct/enum name)
+# - adds: a list of lines added by the formatter
+# - removes: a list of lines removed by the formatter
 class UserExceptions(object):
     aligned_words_mixed_tabs_spaces = '(\w+)\s+(\*?\&?\w+)'
     non_aligned_words = '(\w+) (\*?\&?\w+)'
@@ -208,8 +218,21 @@ class UserExceptions(object):
             return True
 
     @classmethod
+    def get_user_exceptions(cls):
+        return [cls.check_remove_align_whitespaces_in_struct_ctx]
+
+    @classmethod
+    def get_exception_keys(cls):
+        return ["remove-whitespaces-in-struct-ctx"]
+
+class FormatterExceptions(object):
+    @staticmethod
+    def parse_context(context_line):
+        return context_line.split(diff_prefix)[2].split(" ")[1]
+
+    @classmethod
     def check(cls, context_line, adds, removes):
-        for f in [cls.check_remove_align_whitespaces_in_struct_ctx]:
+        for f in UserExceptions.get_user_exceptions():
             if f(context_line, adds, removes):
                 return True
         return False
@@ -242,7 +265,7 @@ class Hunk(object):
         return s[:-1]
 
     def check_exceptions(self):
-        return UserExceptions.check(self.context, self.adds, self.removes)
+        return FormatterExceptions.check(self.context, self.adds, self.removes)
 
 
 class DiffFile(object):

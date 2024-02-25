@@ -29,6 +29,7 @@ class Color:
 
 
 class Config(object):
+    _formatter_exceptions = {"remove-whitespaces-in-struct-ctx": False}
     _default = {"colors": True, "uncrustify": False, "clang": False}
     _config = None
 
@@ -37,17 +38,21 @@ class Config(object):
         gitconfig = configparser.ConfigParser(strict=False)
         gitconfig.read([os.environ["HOME"] + "/.gitconfig", ".git/config"])
 
-        def get_from_config(key):
-            val = gitconfig.get("formatter", key, fallback=cls._default[key])
+        def get_from_config(key, config_section, fallback_dict):
+            val = gitconfig.get(config_section, key, fallback=fallback_dict[key])
             if isinstance(val, str) and val.lower() in ["true", "false"]:
                 val = True if val.lower() == "true" else False
             return val
 
         def set_from_config(key):
-            setattr(cls, key, get_from_config(key))
+            setattr(cls, key, get_from_config(key, "formatter", cls._default))
 
         for key in cls._default.keys():
             set_from_config(key)
+
+        setattr(cls, "exceptions", cls._formatter_exceptions)
+        for key in cls._formatter_exceptions.keys():
+            cls.exceptions[key] = get_from_config(key, "formatter-exceptions", cls._formatter_exceptions)
 
         if not getattr(cls, "colors"):
             Color.PURPLE = Color.CYAN = Color.DARKCYAN = Color.BLUE = Color.GREEN = ""
@@ -57,6 +62,7 @@ class Config(object):
     def initialize(cls):
         if cls._config == None:
             cls.config_from_git()
+            cls._config = True
 
         return cls._config
 
@@ -148,6 +154,67 @@ def overlap_hunks(diff_file, diff1, diff2):
     return hunks
 
 
+class UserExceptions(object):
+    aligned_words_mixed_tabs_spaces = '(\w+)\s+(\*?\&?\w+)'
+    non_aligned_words = '(\w+) (\*?\&?\w+)'
+
+    aligned_words_re = None
+    non_aligned_words_re = None
+
+    @staticmethod
+    def parse_context(context_line):
+        return context_line.split(diff_prefix)[2].split(" ")[1]
+
+    @classmethod
+    def parse_aligned_words(cls, s):
+        if not cls.aligned_words_re:
+            cls.aligned_words_re = re.compile(cls.aligned_words_mixed_tabs_spaces)
+        return cls.aligned_words_re.search(s).groups()
+
+    @classmethod
+    def parse_non_aligned_words(cls, s):
+        if not cls.non_aligned_words_re:
+            cls.non_aligned_words_re = re.compile(cls.non_aligned_words)
+        return cls.non_aligned_words_re.search(s).groups()
+
+    # diff removes whitespace/tab aligned words
+    #
+    # removes:
+    #     struct foo           *foo;
+    #     struct bar           &bar;
+    #
+    # adds:
+    #     struct foo *foo;
+    #     struct bar *bar;
+    @classmethod
+    def remove_align_whitespaces(cls, adds, removes):
+        if len(adds) != len(removes):
+            return False
+
+        for i in range(0, len(adds)):
+            rm_words = cls.parse_aligned_words(removes[i])
+            add_words = cls.parse_non_aligned_words(adds[i])
+            if rm_words != add_words:
+                return False
+        return True
+
+    @classmethod
+    def check_remove_align_whitespaces_in_struct_ctx(cls, context_line, adds, removes):
+        if not Config.exceptions["remove-whitespaces-in-struct-ctx"]:
+            return False
+
+        context = cls.parse_context(context_line)
+        if context == "struct" and cls.remove_align_whitespaces(adds, removes):
+            return True
+
+    @classmethod
+    def check(cls, context_line, adds, removes):
+        for f in [cls.check_remove_align_whitespaces_in_struct_ctx]:
+            if f(context_line, adds, removes):
+                return True
+        return False
+
+
 class Hunk(object):
     def __init__(self):
         self.context = None
@@ -173,6 +240,9 @@ class Hunk(object):
 
         # A little ugly, we strip the last "\n"
         return s[:-1]
+
+    def check_exceptions(self):
+        return UserExceptions.check(self.context, self.adds, self.removes)
 
 
 class DiffFile(object):
@@ -229,24 +299,12 @@ def git_diff_map(base, diff):
     return {}
 
 
-def check_exceptions(hunk):
-    # Example of exception using struct context (need to add regex check for alignment)
-    #
-    # elements = hunk["context"].split(diff_prefix)
-    # if elements[2].split(" ")[1] == "struct":
-    #     return True
-
-    return False
-
-
 def print_diff(filename, hunks):
     if hunks == []:
         return
 
     print(Color.BOLD + filename + Color.END)
     for hunk in hunks:
-        if check_exceptions(hunk):
-            continue
         print(hunk)
 
 
@@ -255,7 +313,7 @@ def print_formatter_dif(formatter, git_diff):
         with formatter(f) as diff_file:
             diff = diff_parser(diff_file)
             overlaps = overlap_hunks(diff_file, diff[f]["adds"], git_diff[f]["adds"])
-            print_diff(f, overlaps)
+            print_diff(f, [h for h in overlaps if h.check_exceptions() == False])
 
 
 def get_base_and_diff(args):

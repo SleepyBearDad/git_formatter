@@ -4,6 +4,7 @@ import configparser
 import os
 import re
 import sys
+import subprocess
 import tempfile
 
 
@@ -16,21 +17,31 @@ add_prefix = "+"
 
 
 class Color:
-    PURPLE = "\033[95m"
-    CYAN = "\033[96m"
-    DARKCYAN = "\033[36m"
-    BLUE = "\033[94m"
-    GREEN = "\033[92m"
-    YELLOW = "\033[93m"
-    RED = "\033[91m"
-    BOLD = "\033[1m"
-    UNDERLINE = "\033[4m"
-    END = "\033[0m"
+    _default = {
+        "PURPLE": "\033[95m",
+        "CYAN": "\033[96m",
+        "DARKCYAN": "\033[36m",
+        "BLUE": "\033[94m",
+        "GREEN": "\033[92m",
+        "YELLOW": "\033[93m",
+        "RED": "\033[91m",
+        "BOLD": "\033[1m",
+        "UNDERLINE": "\033[4m",
+        "END": "\033[0m"
+    }
+
+    @classmethod
+    def initialize(cls, colors=True):
+        for key in cls._default:
+            if colors:
+                setattr(cls, key, cls._default[key])
+            else:
+                setattr(cls, key, "")
 
 
 class Config(object):
     _formatter_exceptions = {"remove-whitespaces-in-struct-ctx": False}
-    _default = {"colors": True, "uncrustify": False, "clang": False}
+    _default = {"colors": True, "uncrustify": False, "clang": False, "patch": False}
     _config = None
 
     @classmethod
@@ -51,12 +62,15 @@ class Config(object):
             set_from_config(key)
 
         setattr(cls, "exceptions", {})
-        for key in UserExceptions.get_exception_keys():
-            cls.exceptions[key] = gitconfig.get("formatter-exceptions", key, fallback=False)
+        for _, key in get_user_exceptions():
+            cls.exceptions[key] = gitconfig.get(
+                "formatter-exceptions", key, fallback=False
+            )
 
-        if not getattr(cls, "colors"):
-            Color.PURPLE = Color.CYAN = Color.DARKCYAN = Color.BLUE = Color.GREEN = ""
-            Color.YELLOW = Color.RED = Color.BOLD = Color.UNDERLINE = Color.END = ""
+        if getattr(cls, "colors"):
+            Color.initialize()
+        else:
+            Color.initialize(False)
 
     @classmethod
     def initialize(cls):
@@ -360,12 +374,30 @@ def print_diff(filename, hunks):
         print(hunk)
 
 
+def patch_source(filename, hunks):
+    if Config.patch:
+        tmp = tempfile.NamedTemporaryFile(prefix="/tmp/difftool.patch.")
+        with open(tmp.name, "w+") as f:
+            f.write(f"{add_prefix * 3} {filename}\n")
+            f.write(f"{remove_prefix * 3} {filename}\n")
+            Color.initialize(False)
+            for hunk in hunks:
+                f.write(f"{hunk}\n")
+            Color.initialize(Config.colors)
+
+        os.system(f"patch -p0 < {tmp.name}")
+
+
 def print_formatter_dif(formatter, git_diff):
     for f in git_diff.keys():
+        if not f.endswith("c"):
+            continue
         with formatter(f) as diff_file:
             diff = diff_parser(diff_file)
             overlaps = overlap_hunks(diff_file, diff[f]["adds"], git_diff[f]["adds"])
-            print_diff(f, [h for h in overlaps if h.check_exceptions() == False])
+            hunks = [h for h in overlaps if h.check_exceptions() == False]
+            print_diff(f, hunks)
+            patch_source(f, hunks)
 
 
 def get_base_and_diff(args):

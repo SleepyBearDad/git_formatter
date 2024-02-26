@@ -404,13 +404,13 @@ def get_base_and_diff(args):
     if len(args) in [2, 3]:
         if len(args) == 2:
             base = args[1]
-            diff = "HEAD"
+            diff = ""
         else:
             base = args[1]
             diff = args[2]
     else:
         base = "origin/main"  # use configuration to get default base!
-        diff = "HEAD"
+        diff = ""
     return base, diff
 
 

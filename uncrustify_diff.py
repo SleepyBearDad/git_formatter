@@ -164,66 +164,95 @@ def overlap_hunks(diff_file, diff1, diff2):
 # - context: add/remove lines, and diff context (e.g. function/struct/enum name)
 # - adds: a list of lines added by the formatter
 # - removes: a list of lines removed by the formatter
-class UserExceptions(object):
-    aligned_words_mixed_tabs_spaces = '(\w+)\s+(\*?\&?\w+)'
-    non_aligned_words = '(\w+) (\*?\&?\w+)'
+class UserException(object):
+    _config_key = ""
 
-    aligned_words_re = None
-    non_aligned_words_re = None
+    @classmethod
+    def action(cls, context_line, adds, removes):
+        return False
+
+    @classmethod
+    def get_exception(cls):
+        return (cls.action, cls._config_key)
+
+
+class WhitespaceRemoveException(UserException):
+    with_whitespaces = "(\w+)\s+(\*?\&?\w+)"
+    without_whitespaces = "(\w+) (\*?\&?\w+)"
+
+    with_whitespaces_re = None
+    without_whitespaces_re = None
 
     @staticmethod
     def parse_context(context_line):
         return context_line.split(diff_prefix)[2].split(" ")[1]
 
     @classmethod
-    def parse_aligned_words(cls, s):
-        if not cls.aligned_words_re:
-            cls.aligned_words_re = re.compile(cls.aligned_words_mixed_tabs_spaces)
-        return cls.aligned_words_re.search(s).groups()
+    def parse_with_whitespaces(cls, s):
+        if not cls.with_whitespaces_re:
+            cls.with_whitespaces_re = re.compile(cls.with_whitespaces)
+        res = cls.with_whitespaces_re.search(s)
+        if res == None:
+            return []
+        return res.groups()
 
     @classmethod
-    def parse_non_aligned_words(cls, s):
-        if not cls.non_aligned_words_re:
-            cls.non_aligned_words_re = re.compile(cls.non_aligned_words)
-        return cls.non_aligned_words_re.search(s).groups()
+    def parse_without_whitespaces(cls, s):
+        if not cls.without_whitespaces_re:
+            cls.without_whitespaces_re = re.compile(cls.without_whitespaces)
+        res = cls.without_whitespaces_re.search(s)
+        if res == None:
+            return []
+        return res.groups()
 
-    # diff removes whitespace/tab aligned words
-    #
-    # removes:
-    #     struct foo           *foo;
-    #     struct bar           &bar;
-    #
-    # adds:
-    #     struct foo *foo;
-    #     struct bar *bar;
     @classmethod
     def remove_align_whitespaces(cls, adds, removes):
         if len(adds) != len(removes):
             return False
 
         for i in range(0, len(adds)):
-            rm_words = cls.parse_aligned_words(removes[i])
-            add_words = cls.parse_non_aligned_words(adds[i])
-            if rm_words != add_words:
+            rm_words = cls.parse_with_whitespaces(removes[i])
+            add_words = cls.parse_without_whitespaces(adds[i])
+            if rm_words != [] or add_words != [] or rm_words != add_words:
                 return False
         return True
 
     @classmethod
-    def check_remove_align_whitespaces_in_struct_ctx(cls, context_line, adds, removes):
-        if not Config.exceptions["remove-whitespaces-in-struct-ctx"]:
-            return False
+    def action(cls, context_line, adds, removes):
+        return cls.remove_align_whitespaces(adds, removes)
 
+
+# diff removes whitespace/tab aligned words
+#
+# removes:
+#     struct foo           *foo;
+#     struct bar           &bar;
+#
+# adds:
+#     struct foo *foo;
+#     struct bar *bar;
+class WhitespaceInStructContext(WhitespaceRemoveException):
+    with_whitespaces = "(\w+)\s+(\*?\&?\w+)"
+    without_whitespaces = "(\w+) (\*?\&?\w+)"
+    _config_key = "remove-whitespaces-in-struct-ctx"
+
+    @classmethod
+    def action(cls, context_line, adds, removes):
         context = cls.parse_context(context_line)
         if context == "struct" and cls.remove_align_whitespaces(adds, removes):
             return True
 
-    @classmethod
-    def get_user_exceptions(cls):
-        return [cls.check_remove_align_whitespaces_in_struct_ctx]
 
-    @classmethod
-    def get_exception_keys(cls):
-        return ["remove-whitespaces-in-struct-ctx"]
+class MixedWhiteSpaceInAssignAlignment(WhitespaceRemoveException):
+    with_whitespaces = "(\w+)\s+= (\*?\&?\w+)"
+    without_whitespaces = "(\w+) += (\*?\&?\w+)"
+    _config_key = "remove-whitespaces-in-assign-alignment"
+
+
+def get_user_exceptions():
+    exceptions = [WhitespaceInStructContext, MixedWhiteSpaceInAssignAlignment]
+    return [e.get_exception() for e in exceptions]
+
 
 class FormatterExceptions(object):
     @staticmethod
@@ -232,8 +261,8 @@ class FormatterExceptions(object):
 
     @classmethod
     def check(cls, context_line, adds, removes):
-        for f in UserExceptions.get_user_exceptions():
-            if f(context_line, adds, removes):
+        for f, key in get_user_exceptions():
+            if Config.exceptions[key] and f(context_line, adds, removes):
                 return True
         return False
 

@@ -227,7 +227,9 @@ class WhitespaceRemoveException(UserException):
         for i in range(0, len(adds)):
             rm_words = cls.parse_with_whitespaces(removes[i])
             add_words = cls.parse_without_whitespaces(adds[i])
-            if rm_words != [] or add_words != [] or rm_words != add_words:
+            if rm_words == [] or add_words == []:
+                return False
+            if rm_words != add_words:
                 return False
         return True
 

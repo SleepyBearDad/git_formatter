@@ -1,5 +1,6 @@
 #!  /usr/bin/python3
 
+import argparse
 import configparser
 import os
 import re
@@ -402,25 +403,20 @@ def print_formatter_dif(formatter, git_diff):
             patch_source(f, hunks)
 
 
-def get_base_and_diff(args):
-    if len(args) in [2, 3]:
-        if len(args) == 2:
-            base = args[1]
-            diff = ""
-        else:
-            base = args[1]
-            diff = args[2]
-    else:
-        base = "origin/main"  # use configuration to get default base!
-        diff = ""
-    return base, diff
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--head', action="store", default="")
+    parser.add_argument("--remote", action="store", default="origin/main")
+
+    return parser.parse_args()
 
 
 def main(args):
     Config().initialize()
-    base, diff = get_base_and_diff(args)
-    diff_map = git_diff_map(base, diff)
+    args = parse_args()
+    diff_map = git_diff_map(args.head, args.remote)
     if Config.uncrustify:
+        # TODO: get "generate_patch" argument from args
         print_formatter_dif(UncrustifyDiffFile, diff_map)
 
 

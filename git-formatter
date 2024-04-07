@@ -1,0 +1,14 @@
+#! /bin/sh
+
+if [ $# == 3 ]; then
+	args="--head $2 --remote $3"
+elif [ $# == 2 ]; then
+	args="--head HEAD --remote $2"
+elif [ $# == 1 ]; then
+	args="--head HEAD --remote origin/main"
+else
+	# print help
+	exit 1
+fi
+
+python3 ~/scripts/uncrustify_diff.py $args

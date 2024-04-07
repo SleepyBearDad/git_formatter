@@ -53,7 +53,63 @@ In the git-config we use the key to enable the exception:
 
 ## Installation
 
-## Formatter Support
+### Requirements
 
-- Uncrustify [Supported]
-- clang [Future Support]
+install uncrustify >= 0.64_d
+
+### Copy formatter files to a PATH location
+
+Currently no installer is supported...
+
+Copy git-formatter and uncrustify_diff.py to a location in the path, e.g.
+```
+mkdir -p ~/scripts/git-formatter/
+cp git-formatter uncrustify_diff.py ~/scripts/git-formatter/
+export PATH=$PATH:~/scripts/git-formatter/
+```
+
+### git pre-commit hook
+
+In order to have git automatically check for formatting errors apply this to your pre-commit git hook:
+
+```
+# If you want to allow format set this variable to true in .git/config
+formatter=$(git config --bool hooks.formatter)
+txtred=$(echo "\e[1;31m")
+reset=$(echo "\e[0m")
+
+# Redirect output to stderr.
+exec 1>&2
+
+if [ "$formatter" == "true" ] &&
+        test $(git formatter $against |
+          LC_ALL=C tr -d '[ -~]\0' | wc -c) != 0
+then
+        echo -e "${txtred}formatter check failed on this commit!${reset}"
+        cat <<\EOF
+
+You can override this by applying --no-verify on the commit, but why not just fix it?!
+
+Here is the formatter output:
+EOF
+
+        git formatter $against
+        exit 1
+fi
+
+```
+
+### Enable required options and exceptions in gitconfig
+
+These are the currently provided exceptions:
+```
+[formatter]
+  colors = true
+  uncrustify = true
+[formatter-exceptions]
+  remove-whitespaces-in-struct-ctx = true
+  remove-whitespaces-in-assign-alignment = true
+  break-multi-line-shift = true
+  break-multi-line-or = true
+  devx-macro-exception = true
+```

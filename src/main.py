@@ -79,11 +79,12 @@ def parse_diff_prefix(line):
     remove_len = 0
 
     for e in elements[1:]:
+        if not e:
+            continue
         if e[0] == "-":
             remove_start, remove_len = parse_diff_element(e)
         if e[0] == "+":
             add_start, add_len = parse_diff_element(e)
-
     return add_start, add_len, remove_start, remove_len
 
 

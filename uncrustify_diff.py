@@ -200,6 +200,8 @@ class WhitespaceRemoveException(UserException):
 
     @staticmethod
     def parse_context(context_line):
+        if len(context_line.split(diff_prefix)[2].split(" ")) < 2:
+            return None
         return context_line.split(diff_prefix)[2].split(" ")[1]
 
     @classmethod
@@ -249,9 +251,9 @@ class WhitespaceRemoveException(UserException):
 #     struct foo *foo;
 #     struct bar *bar;
 class WhitespaceInStructContext(WhitespaceRemoveException):
-    with_whitespaces = "(\w+)\s+(\*?\&?\w+)"
-    without_whitespaces = "(\w+) (\*?\&?\w+)"
     _config_key = "remove-whitespaces-in-struct-ctx"
+    with_whitespaces = "(\w+)\s+([\*\&]?\w+)"
+    without_whitespaces = "(\w+)\s(\*?\&?\w+)"
 
     @classmethod
     def action(cls, context_line, adds, removes):
@@ -259,15 +261,88 @@ class WhitespaceInStructContext(WhitespaceRemoveException):
         if context == "struct" and cls.remove_align_whitespaces(adds, removes):
             return True
 
-
+# diff removes mnixed whitespaces and tabs when aligning assignments
+#
+# removes:
+#    very_long_variable_name = 0;
+#    short_name              = 0;  // Mixed tabs and spaces for alignment
+#
+# adds:
+#    very_long_variable_name = 0;
+#    short_name              = 0;  // All the tabse are replaced by spaces...
 class MixedWhiteSpaceInAssignAlignment(WhitespaceRemoveException):
-    with_whitespaces = "(\w+)\s+= (\*?\&?\w+)"
-    without_whitespaces = "(\w+) += (\*?\&?\w+)"
     _config_key = "remove-whitespaces-in-assign-alignment"
+    with_whitespaces = "(\w+)[\]\)]?\s+= [\(]?(\*?\&?\w+)"
+    without_whitespaces = "(\w+)[\]\)]?[ ]+ = [\(]?(\*?\&?\w+)"
+
+class ExceptionOnRegexMatch(UserException):
+    _re = None
+
+    @classmethod
+    def action(cls, context_line, adds, removes):
+        for line in removes:
+            if not cls._re:
+                cls._re = re.compile(cls._re_str)
+            if cls._re.match(line):
+                return True
+        return False
+
+
+# diff breaks multi-line shift alignment
+#
+# removes:
+#    bitmask = htobe32(
+#    (FOO    << SHIFT_FOO)     |
+#    (FOOFOO << SHIFT_FOO_FOO));
+#
+# adds:
+#    btimaks = htobe32(
+#                      (FOO << SHIFT_FOO)       |
+#                      (FOOFOO << SHIFT_FOOFOO));
+class BreakMultiLineShift(ExceptionOnRegexMatch):
+    _config_key = "break-multi-line-shift"
+    _re_str = "-\s+\(\w+\s+(<<|>>)\s+\w+\)\s+[|&]"
+
+
+# diff indents multi-line or
+#
+# removes:
+#    bitmask = htobe32(
+#    BIT_1_DESCRIPTION |
+#    BIT_2_DESCRIPTION |
+#    BIT_3_DESCRIPTION);
+#
+# adds:
+#    bitmask = htobe32(
+#        BIT_1_DESCRIPTION |
+#        BIT_2_DESCRIPTION |
+#        BIT_3_DESCRIPTION);
+class BreakMultiLineOr(ExceptionOnRegexMatch):
+    _config_key = "break-multi-line-or"
+    _re_str = "-\s+\(?\w+.*\|$"
+
+
+# exception on DEVX_ macros
+#
+# project defines this type of alignment only for the devx macros:
+#
+# DEVX(foo      , var_foo  )
+# DEVX(foobar   , var_bar  )
+# DEVX(foobarbaz, varbarbaz)
+#
+# In order not to complicate, we simply fix the macro calls altogether.
+class DevxMacroException(ExceptionOnRegexMatch):
+    _config_key = "devx-macro-exception"
+    _re_str = "[+-]\t+DEVX_SET_[A-Z0-9_]+\(.*\);$"
 
 
 def get_user_exceptions():
-    exceptions = [WhitespaceInStructContext, MixedWhiteSpaceInAssignAlignment]
+    exceptions = [WhitespaceInStructContext,
+                  MixedWhiteSpaceInAssignAlignment,
+                  BreakMultiLineShift,
+                  BreakMultiLineOr,
+                  DevxMacroException,
+                 ]
     return [e.get_exception() for e in exceptions]
 
 

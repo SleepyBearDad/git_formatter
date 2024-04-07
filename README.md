@@ -113,3 +113,14 @@ These are the currently provided exceptions:
   break-multi-line-or = true
   devx-macro-exception = true
 ```
+
+### git auto-completion
+
+Add this to .git-completion.bash:
+
+```
+_git_formatter ()
+{
+        __git_complete_revlist
+}
+```

@@ -61,11 +61,16 @@ install uncrustify >= 0.64_d
 
 Currently no installer is supported...
 
-Copy git-formatter and uncrustify_diff.py to a location in the path, e.g.
+Copy git-formatter files to your host and set the environment variable GIT_FORMATTER_PATH to the installation directory.
+
 ```
-mkdir -p ~/scripts/git-formatter/
-cp git-formatter uncrustify_diff.py ~/scripts/git-formatter/
-export PATH=$PATH:~/scripts/git-formatter/
+export GIT_FORMATTER_PATH=/home/shahar/git-formatter/
+```
+
+Add the formatter path to PATH
+
+```
+export PATH=$PATH:~/scripts/:$GIT_FORMATTER_PATH
 ```
 
 ### git pre-commit hook

@@ -11,4 +11,4 @@ else
 	exit 1
 fi
 
-python3 ~/projects/Playground/git_formatter/src/main.py $args
+python3 $GIT_FORMATTER_PATH/src/main.py $args
